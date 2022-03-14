@@ -3,18 +3,11 @@ import gym
 import asset
 from datetime import datetime
 import numpy as np
-from HAC import HAC
+from HAC import HAC, ExplorationTechnique
 from logger import Logger
 import argparse
-from enum import Enum
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-
-class ExplorationTechnique(Enum):
-    OU = "ou"
-    NORMAL = "normal"
-    SURPRISE = "surprise"
 
 
 def train(args):
@@ -46,6 +39,7 @@ def train(args):
     exploration_technique = ExplorationTechnique(
         args.exploration_technique
     )  # How to explore
+    sync = args.sync  # Whether to synchronize exploration across all levels
     #################### Hyperparameters above ####################
 
     env = gym.make(env_name)
@@ -80,13 +74,10 @@ def train(args):
     # save trained models
     directory = f"./preTrained/{env_name}/{k_level}level/"
 
-    filename = (
-        f"HAC_{env_name}_{exploration_technique.value}{'_solved' if test_mode else ''}"
-    )
+    filename = f"HAC_{env_name}_{exploration_technique.value}_{'sync' if sync else 'async'}{'_solved' if test_mode else ''}"
     #########################################################
-
     logger = Logger(
-        log_dir=f"logs/{env_name}_{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+        log_dir=f"logs/{env_name}_{exploration_technique.value}_{'sync' if sync else 'async'}_{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     )
 
     if random_seed:
@@ -109,6 +100,7 @@ def train(args):
         state_offset,
         lr,
         exploration_technique,
+        sync,
     )
 
     agent.set_parameters(
@@ -138,12 +130,7 @@ def train(args):
 
         # Run episode in environment
         last_state, _done = agent.run_HAC(
-            env,
-            k_level - 1,
-            state,
-            goal_state,
-            eval_mode or test_mode,
-            False,  # TODO(JS): Are these parameters to HAC correct?
+            env, k_level - 1, state, goal_state, eval_mode or test_mode, False,
         )
 
         if (not test_mode) and agent.check_goal(last_state, goal_state, threshold):
@@ -167,8 +154,8 @@ def train(args):
         else:
             prefix = "Train"
 
-        logger.log_scalar(agent.reward, f"{prefix} Reward", i_episode)
         logger.log_scalar(agent.timestep, f"{prefix} Num Steps", i_episode)
+        logger.log_scalar(agent.reward, f"{prefix} Reward", i_episode)
 
 
 if __name__ == "__main__":
@@ -194,6 +181,7 @@ if __name__ == "__main__":
     ap.add_argument(
         "--exploration_technique", type=str, default=ExplorationTechnique.SURPRISE
     )
+    ap.add_argument("--sync", action="store_true")
 
     args = ap.parse_args()
     train(args)

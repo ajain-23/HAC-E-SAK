@@ -4,8 +4,15 @@ from DDPG import DDPG
 from utils import ReplayBuffer
 from noise import NormalActionNoise, OrnsteinUhlenbeckActionNoise
 from exploration_policy import ExplorationPolicy
+from enum import Enum
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+
+class ExplorationTechnique(Enum):
+    OU = "ou"
+    NORMAL = "normal"
+    SURPRISE = "surprise"
 
 
 class HAC:
@@ -22,7 +29,8 @@ class HAC:
         state_bounds,
         state_offset,
         lr,
-        exploration_technique=None,
+        exploration_technique,
+        sync,
     ):
 
         # adding lowest level
@@ -44,7 +52,9 @@ class HAC:
         self.threshold = threshold
         self.render = render
         self.lr = lr
+
         self.exploration_technique = exploration_technique
+        self.sync = sync
 
         self.action_min = 0
         self.action_max = 0
@@ -131,17 +141,27 @@ class HAC:
                 # add noise or take random action if not subgoal testing
                 if not is_subgoal_test:
                     if is_subgoal_exploration:
-                        if self.exploration_technique == "normal":
+                        if self.exploration_technique == ExplorationTechnique.NORMAL:
                             action += NormalActionNoise(
                                 0, self.exploration_state_noise
                             )()
-                        elif self.exploration_technique == "ou":
+                        elif self.exploration_technique == ExplorationTechnique.OU:
                             action += OrnsteinUhlenbeckActionNoise(
                                 np.array([0]), self.exploration_state_noise
                             )()
-                        elif self.exploration_technique == "surprise":
-                            
-                            action = self.explorers[i_level].get_action(torch.FloatTensor(state).to(device), torch.FloatTensor(action).to(device)).cpu().numpy()
+                        elif (
+                            self.exploration_technique == ExplorationTechnique.SURPRISE
+                        ):
+
+                            action = (
+                                self.explorers[i_level]
+                                .get_action(
+                                    torch.FloatTensor(state).to(device),
+                                    torch.FloatTensor(action).to(device),
+                                )
+                                .cpu()
+                                .numpy()
+                            )
 
                         action = action.clip(self.state_clip_low, self.state_clip_high)
                     else:
@@ -153,9 +173,6 @@ class HAC:
                 if np.random.random_sample() < self.lamda:
                     is_next_subgoal_test = True
 
-                if np.random.random_sample() > 0.2:
-                    is_next_subgoal_exploration = True
-
                 # Pass subgoal to lower level
                 next_state, done = self.run_HAC(
                     env,
@@ -163,7 +180,9 @@ class HAC:
                     state,
                     action,
                     is_next_subgoal_test,
-                    is_next_subgoal_exploration,
+                    is_next_subgoal_exploration
+                    if self.sync
+                    else np.random.random_sample() > 0.2,
                 )
 
                 # if subgoal was tested but not achieved, add subgoal testing transition
@@ -182,16 +201,26 @@ class HAC:
                 # add noise or take random action if not subgoal testing
                 if not is_subgoal_test:
                     if np.random.random_sample() > 0.2:
-                        if self.exploration_technique == "normal":
+                        if self.exploration_technique == ExplorationTechnique.NORMAL:
                             action += NormalActionNoise(
                                 0, self.exploration_action_noise
                             )()
-                        elif self.exploration_technique == "ou":
+                        elif self.exploration_technique == ExplorationTechnique.OU:
                             action += OrnsteinUhlenbeckActionNoise(
                                 np.array([0]), self.exploration_action_noise
                             )()
-                        elif self.exploration_technique == "surprise":
-                            action = self.explorers[i_level].get_action(torch.FloatTensor(state).to(device), torch.FloatTensor(action).to(device)).cpu().numpy()
+                        elif (
+                            self.exploration_technique == ExplorationTechnique.SURPRISE
+                        ):
+                            action = (
+                                self.explorers[i_level]
+                                .get_action(
+                                    torch.FloatTensor(state).to(device),
+                                    torch.FloatTensor(action).to(device),
+                                )
+                                .cpu()
+                                .numpy()
+                            )
                         action = action.clip(
                             self.action_clip_low, self.action_clip_high
                         )
@@ -259,7 +288,7 @@ class HAC:
     def update(self, n_iter, batch_size):
         for i in range(self.k_level):
             self.HAC[i].update(self.replay_buffer[i], n_iter, batch_size)
-            if self.exploration_technique == "surprise":
+            if self.exploration_technique == ExplorationTechnique.SURPRISE:
                 states, actions, _, next_states, _, _, _ = self.replay_buffer[i].sample(
                     batch_size
                 )

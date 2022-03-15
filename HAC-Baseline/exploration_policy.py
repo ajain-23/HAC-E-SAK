@@ -17,7 +17,7 @@ class ExplorationPolicy:
         state_min: torch.Tensor,
         state_max: torch.Tensor,
         learning_rate: float,
-        device: str = "cuda:0",
+        device: str = "cuda:0" if torch.cuda.is_available() else "cpu",
     ):
         action_min = action_min.to(device)
         action_max = action_max.to(device)

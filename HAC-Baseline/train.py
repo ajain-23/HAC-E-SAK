@@ -8,7 +8,7 @@ from logger import Logger
 import argparse
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
+LARGE_CONST = 10000.0
 
 def train(args):
 
@@ -19,7 +19,7 @@ def train(args):
     test_mode = args.test
 
     # Generic parameters
-    env_name = "MountainCarContinuous-h-v1"
+    env_name = "Ant-v3" #"Humanoid-v2"
     save_episode = args.save_episode  # Save every n episodes
     eval_episode = args.eval_episode  # Run eval every n episodes
     max_episodes = args.max_episodes  # Number of training episodes
@@ -47,30 +47,40 @@ def train(args):
     action_dim = env.action_space.shape[0]
 
     # Calculate the range of the action space (min and max)
-    action_bounds = env.action_space.high[0]
-    action_offset = np.array([0.0])
+    print("Action Dim", action_dim)
+    print("Obs Dim", state_dim)
+    print("Action Space Low", env.action_space.low)
+    print("Obs Space", env.observation_space.low)
+
+    action_bounds_high_np, action_bounds_low_np = env.action_space.high, env.action_space.low
+    action_bounds = torch.FloatTensor(action_bounds_high_np.reshape(1, -1)).to(device)
+    action_offset = np.mean([action_bounds_high_np, action_bounds_low_np], axis=0)
     action_offset = torch.FloatTensor(action_offset.reshape(1, -1)).to(device)
-    action_clip_low = np.array([-1.0 * action_bounds])
-    action_clip_high = np.array([action_bounds])
+    action_clip_low = np.array(action_bounds_low_np)
+    action_clip_high = np.array(action_bounds_high_np)
 
     # Calculate the range of the state space (min and max)
-    state_bounds_np = np.array([0.9, 0.07])
-    state_bounds = torch.FloatTensor(state_bounds_np.reshape(1, -1)).to(device)
-    state_offset = np.array([-0.3, 0.0])
+    state_bounds_high_np, state_bounds_low_np = np.array(env.observation_space.high), np.array(env.observation_space.low)
+    if np.all(np.isinf(state_bounds_high_np)):
+        state_bounds_high_np = np.full_like(state_bounds_high_np, LARGE_CONST)
+        state_bounds_low_np = np.full_like(state_bounds_low_np, -LARGE_CONST)
+    state_bounds = torch.FloatTensor(state_bounds_high_np.reshape(1, -1)).to(device)
+    state_offset = np.mean([state_bounds_high_np, state_bounds_low_np], axis=0)
     state_offset = torch.FloatTensor(state_offset.reshape(1, -1)).to(device)
-    state_clip_low = np.array([-1.2, -0.07])
-    state_clip_high = np.array([0.6, 0.07])
+    state_clip_low = np.array(state_bounds_low_np)
+    state_clip_high = np.array(state_bounds_high_np)
 
     # Noise to apply to explorations in states and actions
     exploration_action_noise = np.array([0.1])
     exploration_state_noise = np.array([0.02, 0.01])
 
     # Final goal state (car up on hill, with some velocity)
-    goal_state = np.array([0.48, 0.04])
-    threshold = np.array(
-        [0.01, 0.02]
-    )  # Threshold for whether or not the current state matches goal
-
+    # goal_state = np.array([0.48, 0.04])
+    # threshold = np.array(
+    #     [0.01, 0.02]
+    # )  # Threshold for whether or not the current state matches goal
+    goal_state = np.random.rand(*state_bounds_high_np.shape)
+    threshold = np.ones_like(goal_state) * 0.01
     # save trained models
     directory = f"./preTrained/{env_name}/{k_level}level/"
 
@@ -167,9 +177,9 @@ if __name__ == "__main__":
 
     ap.add_argument("--save_episode", type=int, default=10)
     ap.add_argument("--eval_episode", type=int, default=10)
-    ap.add_argument("--max_episodes", type=int, default=500)
+    ap.add_argument("--max_episodes", type=int, default=5000)
 
-    ap.add_argument("--k_level", type=int, default=2)
+    ap.add_argument("--k_level", type=int, default=3)
     ap.add_argument("--horizon", type=int, default=20)
     ap.add_argument("--lamda", type=float, default=0.3)
 

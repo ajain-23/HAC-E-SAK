@@ -1,3 +1,4 @@
+import os
 import torch
 import gym
 import asset
@@ -19,7 +20,7 @@ def train(args):
     test_mode = args.test
 
     # Generic parameters
-    env_name = "Ant-v3" #"Humanoid-v2"
+    env_name = "LunarLanderContinuous-v2" #"Humanoid-v2"
     save_episode = args.save_episode  # Save every n episodes
     eval_episode = args.eval_episode  # Run eval every n episodes
     max_episodes = args.max_episodes  # Number of training episodes
@@ -47,11 +48,6 @@ def train(args):
     action_dim = env.action_space.shape[0]
 
     # Calculate the range of the action space (min and max)
-    print("Action Dim", action_dim)
-    print("Obs Dim", state_dim)
-    print("Action Space Low", env.action_space.low)
-    print("Obs Space", env.observation_space.low)
-
     action_bounds_high_np, action_bounds_low_np = env.action_space.high, env.action_space.low
     action_bounds = torch.FloatTensor(action_bounds_high_np.reshape(1, -1)).to(device)
     action_offset = np.mean([action_bounds_high_np, action_bounds_low_np], axis=0)
@@ -71,18 +67,20 @@ def train(args):
     state_clip_high = np.array(state_bounds_high_np)
 
     # Noise to apply to explorations in states and actions
-    exploration_action_noise = np.array([0.1])
-    exploration_state_noise = np.array([0.02, 0.01])
+    exploration_action_noise = np.ones_like(action_bounds_high_np) * 0.1
+    exploration_state_noise = np.ones_like(state_bounds_high_np) * 0.01
 
     # Final goal state (car up on hill, with some velocity)
     # goal_state = np.array([0.48, 0.04])
     # threshold = np.array(
     #     [0.01, 0.02]
     # )  # Threshold for whether or not the current state matches goal
-    goal_state = np.random.rand(*state_bounds_high_np.shape)
-    threshold = np.ones_like(goal_state) * 0.01
+    goal_state = np.random.rand(*state_bounds_high_np.shape) * 0.0
+    threshold = np.ones_like(goal_state) * 0.02
     # save trained models
     directory = f"./preTrained/{env_name}/{k_level}level/"
+    if not os.path.exists(directory):
+        os.makedirs(directory)
 
     filename = f"HAC_{env_name}_{exploration_technique.value}_{'sync' if sync else 'async'}{'_solved' if test_mode else ''}"
     #########################################################
